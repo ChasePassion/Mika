@@ -6,8 +6,11 @@ import android.view.Display
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.wangzan101.mika.cap.phone.shell.MainScreenWatch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -81,8 +84,12 @@ class DialogSpillDeviceTest {
         val r = screen.tapRef(button.ref, s.snapshotId)
         println("tap result: $r")
 
-        // 从助手的记录里认这次冒到主屏上的弹窗任务(挪走后任务号不变)
-        val b = shell.mainArrivals(since)
+        // 从助手的记录里认这次冒到主屏上的弹窗任务;服务的进程可能是冷的,弹窗会晚一两秒才出来
+        val b = DeviceSupport.pollUntil(5_000) {
+            val arr = shell.mainArrivals(since)
+            val pkgs = arr?.getStringArray(MainScreenWatch.KEY_PACKAGE)
+            if (pkgs?.contains(DeviceSupport.TEST_PACKAGE) == true) arr else null
+        }
         val packages = b?.getStringArray(MainScreenWatch.KEY_PACKAGE)
         val tasks = b?.getIntArray(MainScreenWatch.KEY_TASK)
         val dialogTask = packages?.indices?.firstOrNull { packages[it] == DeviceSupport.TEST_PACKAGE }?.let { tasks?.get(it) }
@@ -90,7 +97,7 @@ class DialogSpillDeviceTest {
         dumpMainWindows("after action")
 
         // 让 Mika 有机会处理这次冒到主屏上的任务(动作里没赶上的,读屏时会补)
-        delay(1_500)
+        delay(500)
         val now = screen.snapshot()
         delay(500)
         val opened = now.opened ?: (r as? com.wangzan101.mika.core.uistate.ActionResult.Ok)?.opened
@@ -107,5 +114,14 @@ class DialogSpillDeviceTest {
         assertNotNull("the popup was not reported to the model", opened)
         assertEquals(DeviceSupport.TEST_PACKAGE, opened!!.packageName)
         assertTrue("the popup was reported as pulled back: $opened", !opened.pulledBack && opened.onUserScreen && opened.needsUser)
+
+        // 任务停在这里等用户处理:弹窗还在时一直等,用户关掉后自动结束
+        assertNotNull("the run is not waiting for the popup", screen.userPopup.value)
+        val waited = async(Dispatchers.IO) { screen.awaitUserPopup() }
+        delay(700)
+        assertTrue("the wait ended before the popup closed", waited.isActive)
+        DeviceSupport.sh("input keyevent 4")
+        assertNotNull("the wait did not end after the popup closed", withTimeout(5_000) { waited.await() })
+        assertEquals("Mika's screen changed while the user handled the popup", vdBefore, shell.topTaskId(vd))
     }
 }

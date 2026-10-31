@@ -65,6 +65,7 @@ import com.wangzan101.mika.core.run.RunId
 import com.wangzan101.mika.core.run.RunSpec
 import com.wangzan101.mika.core.run.RunProvenance
 import com.wangzan101.mika.core.run.RunOrigin
+import com.wangzan101.mika.core.run.Attendance
 import com.wangzan101.mika.core.child.ChildAgentRunner
 import com.wangzan101.mika.core.run.RunInbox
 import com.wangzan101.mika.core.run.RunInput
@@ -617,7 +618,11 @@ class TaskRun(
                 SystemPrompt.identity(),
                 // 助手断开、被挪走只在这一步用的是手机时才查
                 gate = { w ->
-                    if (phoneScreen.acquired && dispatcher?.surface != WEB) phone?.screen?.let { awaitUserPick(it, taskGate, w) }
+                    if (phoneScreen.acquired && dispatcher?.surface != WEB) {
+                        phone?.screen?.let { awaitUserPick(it, taskGate, w) }
+                        // 用户不在场(定时、子任务)时不等主屏上的弹窗:等也没人处理
+                        if (provenance.attendance != Attendance.Unattended) phone?.screen?.let { awaitUserPopup(it, w) }
+                    }
                     taskGate.pass({ phoneScreen.acquired && dispatcher?.surface != WEB }, w)
                 }, knowledge = knowledge, sink = sink, installedApps = { apps },
                 // 选渠道用的事实:装了哪些 App、在 Mika 里登录过哪些网站、有没有内置浏览器
@@ -808,6 +813,16 @@ class TaskRun(
         val r = screen.awaitUserPick() as? AndroidScreen.PickResult.NeedsUser ?: return
         gate.pauseForUser(TaskGate.finishCopy(r.app), setWaiting)
         screen.afterUserStep(r)
+    }
+
+    /**
+     * 主屏上有要用户亲手处理的弹窗(见 [AndroidScreen.userPopup]):停在这里,胶囊上请用户在屏幕上完成登录或验证;
+     * 弹窗从主屏消失(用户点完或关掉)后自动接着做,不用再点「继续」。不在等时直接返回。
+     */
+    private suspend fun awaitUserPopup(screen: AndroidScreen, setWaiting: (TaskState?) -> Unit) {
+        val popup = screen.userPopup.value ?: return
+        setWaiting(TaskState.Held(TaskGate.userStep(TaskGate.popupCopy(popup.app))))
+        screen.awaitUserPopup()
     }
 
     /** 目标 App 换了就静音,并盯着它有没有被用户挪到主屏。 */

@@ -155,8 +155,10 @@ class AndroidScreen(
             hasWindow = r.anyAppWindow,
             unreadableApp = if (r.topPackage == null) foregroundTaskPackage() else null,
             windows = r.windows,
-            // 还在等用户在主屏上选:照样说一声
-            opened = late?.opened ?: _userPick.value?.let { OpenedElsewhere(it.packageName, it.app, pulledBack = false, picker = true) },
+            // 还在等用户在主屏上选、或处理弹窗:照样说一声
+            opened = late?.opened
+                ?: _userPick.value?.let { OpenedElsewhere(it.packageName, it.app, pulledBack = false, picker = true) }
+                ?: _userPopup.value?.let { OpenedElsewhere(it.packageName, it.app, pulledBack = false, needsUser = true) },
         )
     }
 
@@ -925,6 +927,16 @@ class AndroidScreen(
     /** 正等着用户在主屏上选;任务据此停住,胶囊上请用户选一下。 */
     val userPick: StateFlow<UserPick?> = _userPick.asStateFlow()
 
+    /**
+     * 主屏上要用户亲手处理的弹窗(登录验证、账号确认、付款确认一类):[taskId] 那个任务,[packageName]/[app] 是谁,
+     * [since] 它出现的时刻。任务在下一个改动屏幕的动作前停下,等它从主屏消失(用户点完或关掉)再接着做。
+     */
+    class UserPopup(val taskId: Int, val packageName: String, val app: String?, val since: Long)
+
+    private val _userPopup = MutableStateFlow<UserPopup?>(null)
+    /** 正等着用户在主屏上处理弹窗;任务据此停住,胶囊上请用户处理。 */
+    val userPopup: StateFlow<UserPopup?> = _userPopup.asStateFlow()
+
     /** 用户选完之后:选出来的 App 要用户亲手处理([NeedsUser],留在主屏),其余的已经办好(结果在下一次读屏或动作里报)。 */
     sealed interface PickResult {
         data object Settled : PickResult
@@ -1059,8 +1071,11 @@ class AndroidScreen(
         return bounds.width() < metrics.widthPixels * FULL_SCREEN_SHARE || bounds.height() < metrics.heightPixels * FULL_SCREEN_SHARE
     }
 
-    private suspend fun popup(a: MainScreenSpill.Arrival, pkg: String): Spill =
-        Spill(OpenedElsewhere(pkg, appLabel(pkg), pulledBack = false, inProfile = inProfileOf(pkg, a.userId), needsUser = true), null)
+    private suspend fun popup(a: MainScreenSpill.Arrival, pkg: String): Spill {
+        val app = appLabel(pkg)
+        _userPopup.value = UserPopup(a.taskId, pkg, app, a.at)
+        return Spill(OpenedElsewhere(pkg, app, pulledBack = false, inProfile = inProfileOf(pkg, a.userId), needsUser = true), null)
+    }
 
     /**
      * 开到主屏上的是系统问「用哪一个打开」的窗口(系统的选择器,或系统包的窗口里的选项对得上装了两份的 App;
@@ -1160,6 +1175,40 @@ class AndroidScreen(
     }
 
     /**
+     * 主屏上有要用户亲手处理的弹窗(登录验证、账号确认一类):等它从主屏消失(用户点完或关掉)再接着做,
+     * 最多 [POPUP_WAIT_MS]。这期间任务停着,用户处理完自动继续,不用再点「继续」。
+     * 返回等的是哪个弹窗;没在等为 null。
+     */
+    suspend fun awaitUserPopup(): UserPopup? = withContext(Dispatchers.IO) {
+        val p = _userPopup.value ?: return@withContext null
+        // 已经在接管(App 交到用户手上)时不再单独等弹窗:接管的那条流程会一并处理
+        if (handedOver()) {
+            _userPopup.value = null
+            return@withContext null
+        }
+        val deadline = SystemClock.uptimeMillis() + POPUP_WAIT_MS
+        while (SystemClock.uptimeMillis() < deadline) {
+            if (runCatching { shell.displayOfTask(p.taskId) }.getOrDefault(-1) != Display.DEFAULT_DISPLAY) break
+            // 同一块屏上也可能已经点完(整屏的登录页回到 App 正常页面、对话框关掉了):不再是要用户处理的页面就算完
+            val activity = runCatching { shell.topActivity(Display.DEFAULT_DISPLAY) }.getOrNull()
+            val still = runCatching {
+                needsUserWindow(
+                    MainScreenSpill.Arrival(
+                        taskId = p.taskId, packageName = p.packageName, userId = -1, at = SystemClock.uptimeMillis(),
+                        from = Display.DEFAULT_DISPLAY, sameTask = false, standard = true, now = Display.DEFAULT_DISPLAY,
+                        topActivity = activity,
+                    ),
+                    p.packageName,
+                )
+            }.getOrDefault(false)
+            if (!still) break
+            delay(POPUP_POLL_MS)
+        }
+        _userPopup.value = null
+        p
+    }
+
+    /**
      * 主屏上这个 App 的窗口要用户亲手处理:有密码框,或树里读不出东西而截主屏时系统报防截屏窗口(截到的画面不留,马上丢掉)。
      * 只看有没有,不读里面写了什么。
      */
@@ -1227,7 +1276,8 @@ class AndroidScreen(
             o.byUser && !o.pulledBack -> "$name needed the user; they handled it on their own screen and tapped continue, and it has closed. Observe before acting."
             o.byUser -> "$name needed the user; they handled it on their own screen and tapped continue. It is now in front on Mika's screen. Observe before acting."
             o.needsUser && o.onUserScreen -> "It was $name: a popup on the user's screen that needs them (a sign-in, verification or confirmation step). " +
-                "It was left there on purpose; do not repeat the action. Call hand_to_user so they can finish it, then observe before acting."
+                "It was left there on purpose; do not repeat the action. Mika waits for it to close before the next screen action, " +
+                "then observe before acting. If it stays open, call hand_to_user."
             o.pulledBack -> "It was $name, now in front on Mika's screen.$copy Observe before acting."
             else -> "It was $name, which the user is using on their own screen, so it was left there. " +
                 "Do not repeat the previous action: call hand_to_user with reason other so the user can do that step there, or wait and try again later."
@@ -1570,6 +1620,9 @@ class AndroidScreen(
         const val FULL_SCREEN_SHARE = 0.95f
         /** 刚冒出来的窗口可能还在开场动画里:等这么久再看一次,确认它是不是一直不是整屏。 */
         const val POPUP_SETTLE_MS = 300L
+        /** 主屏上等用户处理弹窗:最多等这么久,多久看一次它还在不在。 */
+        const val POPUP_WAIT_MS = 120_000L
+        const val POPUP_POLL_MS = 300L
         const val MAX_USER_TAPS = 32
         /** 用户在主屏的选择框里选了之后,等选中的 App 上来最多多久;等着用户选时多久看一次。 */
         const val PICK_WAIT_MS = 3_000L

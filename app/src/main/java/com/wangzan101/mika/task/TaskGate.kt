@@ -92,6 +92,9 @@ class TaskGate(
         /** 选出来的 [app] 要用户亲手处理时的那句。 */
         fun finishCopy(app: String?) = app?.let { tr(R.string.gate_finish_app, it) } ?: tr(R.string.gate_finish_unknown)
 
+        /** 主屏上要用户处理的弹窗(登录验证一类)时的那句;好了会自动接着做。 */
+        fun popupCopy(app: String?) = app?.let { tr(R.string.gate_popup_app, it) } ?: tr(R.string.gate_popup_unknown)
+
         val MOVED_AWAY: String get() = tr(R.string.gate_moved_away)
         val MOVE_BACK_FAILED: String get() = tr(R.string.gate_move_back_failed)
         val SHELL_DOWN: String get() = tr(R.string.gate_shell_down)

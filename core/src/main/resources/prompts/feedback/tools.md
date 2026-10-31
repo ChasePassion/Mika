@@ -250,7 +250,7 @@ The user closed the system's question without picking, so nothing was opened. De
 {{app}} needed the user, so it stayed on their own screen; they handled it there and tapped continue. Observe Mika's screen to see where things stand before going on.
 
 ## spill.user_popup
-This action opened a popup on the user's own screen that needs them (a sign-in, verification, account confirmation or payment step). Mika left it there on purpose: do not pull it back to Mika's screen and do not repeat the action. Call hand_to_user so the user can finish it there (reason login for a sign-in or verification, payment for a payment step), then check Mika's screen to see what came back before going on.
+A popup that needs the user is on their own screen (a sign-in, verification, account confirmation or payment step). Mika left it there on purpose and waits for it to close before the next screen action: do not pull it back to Mika's screen and do not repeat the action. Once it closes, observe Mika's screen and check the result before going on. If it stays open and you cannot continue, call hand_to_user so the user can finish it there.
 
 ## spill.in_use
 This action opened {{app}}, which the user is using on their own screen, so it opened there in front of them and Mika left it alone. Do not repeat the action. Call hand_to_user with reason other so the user can do that step there, or wait and try again later.

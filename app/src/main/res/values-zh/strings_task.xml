@@ -19,6 +19,8 @@
     <string name="gate_pick_system">系统在问用哪个，请在屏幕上选一下</string>
     <string name="gate_finish_app">「%1$s」要你在屏幕上处理，处理好了点继续</string>
     <string name="gate_finish_unknown">刚打开的 App 要你在屏幕上处理，处理好了点继续</string>
+    <string name="gate_popup_app">「%1$s」要你在屏幕上完成登录或验证，好了会自动接着做</string>
+    <string name="gate_popup_unknown">有个弹窗要你在屏幕上完成登录或验证，好了会自动接着做</string>
     <string name="gate_moved_away">你打开了这个 App,用完点继续</string>
     <string name="gate_move_back_failed">没能把 App 挪回 Mika 的屏幕,点继续再试一次</string>
     <string name="gate_shell_down">手机操作断开了,等它重新连上(或到设置里处理)后点继续</string>
