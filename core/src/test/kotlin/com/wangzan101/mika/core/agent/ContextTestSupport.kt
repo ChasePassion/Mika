@@ -2,6 +2,7 @@ package com.wangzan101.mika.core.agent
 
 import com.wangzan101.mika.core.model.Message
 import com.wangzan101.mika.core.model.Part
+import com.wangzan101.mika.core.testing.TOOLS
 
 /** 一次请求里去掉每步接在末尾的运行时状态,便于按旧的位置看工具结果与提示。 */
 internal fun List<Message>.withoutRuntime(): List<Message> = map(ContextBuilder::withoutRuntimeState).filter { it.parts.isNotEmpty() }
@@ -19,3 +20,15 @@ internal fun List<Message>.contextBodies(vararg kinds: ContextKind): List<String
 internal fun List<Message>.runtimeStates(): List<String> = flatMap { it.parts }.filterIsInstance<Part.Text>()
     .filter { ContextBuilder.kindOf(it.text) == ContextKind.RuntimeState }
     .map { ContextBuilder.bodyOf(com.wangzan101.mika.core.model.Message(com.wangzan101.mika.core.model.Role.User, listOf(it), com.wangzan101.mika.core.model.Author.Mika))!! }
+
+/** 找一个 contextTokens,使触发点(扣掉 [overhead])刚好不低于 [tokens] + [margin]。 */
+internal fun contextFor(tokens: Int, overhead: Int = 0, margin: Int = 0): Int {
+    val compressor = ContextCompressor(TOOLS)
+    var lo = 1
+    var hi = 10_000_000
+    while (lo < hi) {
+        val mid = (lo + hi) / 2
+        if (compressor.triggerTokens(mid, overhead) >= tokens + margin) hi = mid else lo = mid + 1
+    }
+    return lo
+}

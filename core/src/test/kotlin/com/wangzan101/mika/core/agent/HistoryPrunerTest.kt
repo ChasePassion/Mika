@@ -111,7 +111,7 @@ class HistoryPrunerTest {
             Message(Role.Assistant, listOf(Part.ToolCall(id, tool, "{}")), Author.Mika),
             Message(Role.Tool, listOf(Part.ToolResult(id, content, false, listOf(com.wangzan101.mika.core.observation.ReadTag(obsId, form)))), Author.Mika),
         )
-        val long = "x".repeat(5000)
+        val long = "x".repeat(10_000)
         val h = listOf(task) +
             round("i", "phone_launch_app", """{"ok":true,"currentApp":"com.x","note":"${"y".repeat(400)}"}""", com.wangzan101.mika.core.observation.ObsForm.Interface, 1) +
             round("p", "web_read_page", """{"ok":true,"url":"https://a.example.com/","text":"$long"}""", com.wangzan101.mika.core.observation.ObsForm.Page, 2) +

@@ -86,19 +86,19 @@ class StructuredCompactionTest {
         assertTrue("Goal: " !in s && s.lines()[1] == ContextCompressor.SUMMARY_REMINDER && s.lines()[2].startsWith("Step 1"))
     }
 
-    @Test fun calibratedEstimateDecidesWhenToCompact() {
+    @Test fun currentTokensDecideWhenToCompact() {
         val h = head + taps(20)
-        val context = (TokenEstimate.of(h) / ContextCompressor.COMPACT_AT).toInt() + 10
+        val size = TokenEstimate.of(h)
+        val context = contextFor(size, margin = 1)
         val c = ContextCompressor(TOOLS)
-        assertEquals(h, c.compress(h, context).messages)
-        // 服务商报的比粗估多一倍:同样的历史按校准后的估算已越过触发点,压缩一次
-        c.calibrate(1000, 2000)
-        assertTrue(c.compress(h, context).foldedSteps > 0)
+        assertEquals(h, c.compress(h, context, currentTokens = size).messages)
+        // 锚点说当前已经比粗估大一倍:同样的历史越过触发点,压缩一次
+        assertTrue(c.compress(h, context, currentTokens = size * 2).foldedSteps > 0)
     }
 
     @Test fun compactionIsStickyForTheTask() {
         val all = head + taps(20)
-        val context = (TokenEstimate.of(all) / ContextCompressor.COMPACT_AT).toInt() + 10
+        val context = contextFor(TokenEstimate.of(all), margin = 1)
         val c = ContextCompressor(TOOLS)
         assertTrue(c.compress(all, context, fixedOverhead = 100).foldedSteps > 0)
         // 回到触发点以下仍接着用压缩的结果;新的实例(新任务)从原样起

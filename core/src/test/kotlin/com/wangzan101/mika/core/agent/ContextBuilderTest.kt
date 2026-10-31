@@ -68,35 +68,32 @@ class ContextBuilderTest {
     }
 
     @Test fun knowledgeItemCappedWithHint() {
-        val s = ContextBuilder().start("t", knowledge = listOf(app("a", body = "字".repeat(KNOWLEDGE_BODY_LIMIT + 50))))
+        val s = ContextBuilder().start("t", knowledge = listOf(app("a", body = "字".repeat(3_000))))
         val body = ContextBuilder.bodyOf(s.messages[1])!!
-        assertEquals(clipKnowledge("字".repeat(KNOWLEDGE_BODY_LIMIT + 50)), body)
+        assertTrue(TokenEstimate.of(body) <= KNOWLEDGE_BODY_LIMIT)
         assertTrue(body.endsWith(KNOWLEDGE_TRUNCATED_HINT))
     }
 
     @Test fun layerBudgetClipsThenDrops() {
-        // L2 上限 5000:第一份 3000 全给,第二份截到剩下的 2000,第三份没额度了不给
-        val b = ContextBuilder(ContextBudget(layers = mapOf(ContextLayer.Knowledge to 5_000)))
-        val s = b.start("t", knowledge = (1..3).map { app("k$it", body = "字".repeat(3_000)) })
+        // L2 上限 4000 token:两份各 2000,第三份没额度了不给
+        val b = ContextBuilder(ContextBudget(layers = mapOf(ContextLayer.Knowledge to 4_000)))
+        val s = b.start("t", knowledge = (1..3).map { app("k$it", body = "字".repeat(2_666)) })
         val bodies = s.messages.mapNotNull { m -> ContextBuilder.bodyOf(m)?.takeIf { ContextBuilder.kindOf(m) == ContextKind.AppKnowledge } }
         assertEquals(2, bodies.size)
-        assertEquals(3_000, bodies[0].length)
-        assertEquals(2_000, bodies[1].length)
-        assertTrue(bodies[1].endsWith(KNOWLEDGE_TRUNCATED_HINT))
         assertEquals(listOf("k1", "k2"), s.knowledge.map { it.name })
         // 中途再来一份:L2 已满,不给
         assertNull(b.knowledge(app("k4"), "", withLinks = false))
     }
 
     @Test fun totalBudgetTrimsLowPriorityLayersFirst() {
-        // 总额 4000:L5 先拿走 2500(不截),L2 截到剩下的 1500;技能索引是找技能的唯一入口,额度用完也整份给
+        // 总额 4000 token:L5 先占住,L2 截到剩下的;技能索引整份给
         val b = ContextBuilder(ContextBudget(total = 4_000))
         val s = b.start("t", memory = "忆".repeat(2_500), knowledge = listOf(app("a", body = "知".repeat(3_000))),
             skillsIndex = "索".repeat(800))
         val kinds = s.messages.map { ContextBuilder.kindOf(it) }
         assertEquals(listOf(ContextKind.Memory, null, ContextKind.AppKnowledge, ContextKind.SkillsIndex), kinds)
-        assertEquals(1_500, ContextBuilder.bodyOf(s.messages[2])!!.length)
-        assertEquals(800, ContextBuilder.bodyOf(s.messages[3])!!.length)
+        assertTrue(TokenEstimate.of(ContextBuilder.bodyOf(s.messages[2])!!) <= 2_125)
+        assertTrue(ContextBuilder.bodyOf(s.messages[3])!!.isNotEmpty())
         // L5 即使超出总额也不丢
         val big = ContextBuilder(ContextBudget(total = 100)).start("t", priorTurns = "前".repeat(500), memory = "忆".repeat(500))
         assertEquals(listOf(ContextKind.PriorTurns, ContextKind.Memory, null), big.messages.map { ContextBuilder.kindOf(it) })

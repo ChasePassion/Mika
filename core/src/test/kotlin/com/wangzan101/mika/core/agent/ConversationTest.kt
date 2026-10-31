@@ -9,8 +9,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConversationTest {
-    private fun text(turns: List<Turn>, maxTurns: Int = 5, maxChars: Int = 4000) =
-        (Conversation.context(turns, maxTurns, maxChars)!!.parts.single() as Part.Text).text
+    private fun text(turns: List<Turn>, maxTurns: Int = 5, maxTokens: Int = 2_500) =
+        (Conversation.context(turns, maxTurns, maxTokens)!!.parts.single() as Part.Text).text
 
     @Test fun noTurnsNoMessage() {
         assertNull(Conversation.context(emptyList()))
@@ -25,11 +25,11 @@ class ConversationTest {
         assertTrue(t.indexOf("问题6") < t.indexOf("问题7") && t.indexOf("问题7") < t.indexOf("问题8"))
         // 超长时丢掉较早的,保留最近的
         val long = (1..5).map { Turn("问题$it", "长".repeat(300), "succeeded") }
-        val capped = text(long, maxChars = 800)
-        assertTrue(capped.length <= 800)
+        val capped = text(long, maxTokens = 800)
+        assertTrue(TokenEstimate.of(capped) <= 800)
         assertTrue("问题5" in capped && "问题1" !in capped)
         // 单轮就超长:截断而不是超出
-        assertTrue(text(listOf(Turn("问", "长".repeat(5000), "succeeded")), maxChars = 500).length <= 500)
+        assertTrue(TokenEstimate.of(text(listOf(Turn("问", "长".repeat(5000), "succeeded")), maxTokens = 500)) <= 500)
     }
 
     @Test fun failedTurnShowsReason() {
