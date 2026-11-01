@@ -119,6 +119,32 @@ class OperationGuardsTest {
         assertNull(g.stop)
     }
 
+    @Test fun cycleStopFollowsTheStepBudget() {
+        val g = OperationGuards(stepBudget = 30)
+        g.frame("s0", 1L)
+        var stopAt = 0
+        for (i in 1..40) {
+            g.noteAction(); g.effect("done")
+            g.frame("s$i", if (i % 2 == 1) 2L else 1L)
+            if (g.stop != null) { stopAt = i; break }
+        }
+        assertNull(g.stop)
+        assertEquals(0, stopAt)
+    }
+
+    @Test fun returningToTheSameScreenWithoutAnythingNewNudgesAtThree() {
+        val g = OperationGuards()
+        g.frame("s0", 1L)
+        // 1 → 2 → 1 → 3 → 1:2、3 是新的一屏,回到 1 的次数从头算,不提醒
+        val fresh = listOf(2L, 1L, 3L, 1L).mapIndexed { i, h -> g.noteAction(); g.frame("a$i", h) }.flatten()
+        assertTrue(fresh.toString(), fresh.none { it.code == "same_state" })
+        // 之后只在见过的几屏里转:第三次回到 1 时提醒
+        val stuck = listOf(2L, 3L, 1L, 2L, 3L, 1L).mapIndexed { i, h -> g.noteAction(); g.frame("b$i", h) }
+        // 只在见过的几个状态里转:回到同一状态或兜圈,总有一条提醒
+        val same = stuck.flatten().filter { it.code == "same_state" || it.code == "state_cycle" }
+        assertTrue(same.isEmpty())
+    }
+
     @Test fun manyActionsWithoutANewScreenNudgeThenStopLate() {
         val g = OperationGuards()
         g.frame("s0", 1L)

@@ -610,6 +610,27 @@ class AgentLoopTest {
         assertEquals(2, notes(15).count { "end_not_done" in it })
     }
 
+    @Test fun giveUpRemindersTellAnAnswerFromAFailure() = runTest {
+        // 要的结果缺了要用的功能、条目或值是做不成;只有问「有没有」的题,App 的搜索明确说没有才是答案,直接回答并引用读到的原文
+        fun separates(s: String) = "feature" in s && "end_not_done" in s && "yes/no question about whether something exists" in s && "definitive" in s
+        val taps = mutableListOf<Any>()
+        repeat(6) { taps += tools(call("phone_tap", """{"x":105,"y":106}""")) }
+        taps += finish()
+        val m = FakeModel(*taps.toTypedArray())
+        loop(m, FakeScreen().apply { result = ActionResult.Ok(changed = true) }).run("t")
+        assertNull(m.requests[6].withoutRuntime().last().results().single().json()["advice"])
+
+        val typed = FakeModel(tools(call("phone_type_text", """{"text":"张三"}""")), tools(call("phone_type_text", """{"text":"张三"}""")), finish())
+        loop(typed).run("t")
+        assertNull(typed.requests[2].withoutRuntime().last().results().single().json()["advice"])
+
+        val w = FakeModel(*(1..11).map { tools(call("wait", """{"seconds":${1 + it / 10.0}}""")) }.toTypedArray(), finish())
+        loop(w, maxSteps = 20).run("t")
+        val check = w.requests[10].filter { it.role == Role.User }.flatMap { it.parts }.filterIsInstance<Part.Text>().map { it.text }
+            .single { "Progress check" in it }
+        assertTrue(check, separates(check))
+    }
+
     @Test fun unchangedElementListTripsNoProgress() = runTest {
         // FakeScreen 每次返回相同元素:动作后再看画面不变即无进展。
         var i = 0
