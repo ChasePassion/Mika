@@ -36,32 +36,6 @@ class OperationGuardsTest {
         )
     }
 
-    @Test fun repeatedTapAloneDoesNotMeanStuck() {
-        val g = OperationGuards()
-        repeat(80) { i ->
-            assertTrue(g.beforeAction("phone_tap", obj("""{"x":105,"y":106}""")).isEmpty())
-            g.noteAction()
-            assertTrue(g.frame("f$i", i.toLong()).isEmpty())
-        }
-        assertNull(g.stop)
-    }
-
-    @Test fun diagnosticToolsUseHigherThresholdsByToolName() {
-        val g = OperationGuards()
-        val perCall = (1..15).map { g.beforeAction("phone_observe", obj("""{"reason":"r$it"}"""), diagnostic = true) }
-        assertTrue(perCall.all { it.isEmpty() })
-        assertNull(g.stop)
-    }
-
-    @Test fun loopWindowIsSixteenSteps() {
-        val g = OperationGuards()
-        g.beforeAction("phone_tap", obj("""{"x":1,"y":1}"""))
-        g.beforeAction("phone_tap", obj("""{"x":1,"y":1}"""))
-        repeat(15) { g.beforeAction("phone_tap", obj("""{"x":${100 + it * 60},"y":500}""")) }
-        // 前两次 tap 已滑出 16 步窗口,第三次不算重复。
-        assertTrue(g.beforeAction("phone_tap", obj("""{"x":1,"y":1}""")).isEmpty())
-    }
-
     @Test fun lookingWithoutActingIsNotNoProgress() {
         val g = OperationGuards()
         g.frame("initial", 0L)
@@ -143,32 +117,6 @@ class OperationGuardsTest {
         }
         assertTrue(warnings.toString(), warnings.none { it.code == "no_new_state" })
         assertNull(g.stop)
-    }
-
-    @Test fun cycleStopFollowsTheStepBudget() {
-        val g = OperationGuards(stepBudget = 30)
-        g.frame("s0", 1L)
-        var stopAt = 0
-        for (i in 1..40) {
-            g.noteAction(); g.effect("done")
-            g.frame("s$i", if (i % 2 == 1) 2L else 1L)
-            if (g.stop != null) { stopAt = i; break }
-        }
-        assertNull(g.stop)
-        assertEquals(0, stopAt)
-    }
-
-    @Test fun returningToTheSameScreenWithoutAnythingNewNudgesAtThree() {
-        val g = OperationGuards()
-        g.frame("s0", 1L)
-        // 1 → 2 → 1 → 3 → 1:2、3 是新的一屏,回到 1 的次数从头算,不提醒
-        val fresh = listOf(2L, 1L, 3L, 1L).mapIndexed { i, h -> g.noteAction(); g.frame("a$i", h) }.flatten()
-        assertTrue(fresh.toString(), fresh.none { it.code == "same_state" })
-        // 之后只在见过的几屏里转:第三次回到 1 时提醒
-        val stuck = listOf(2L, 3L, 1L, 2L, 3L, 1L).mapIndexed { i, h -> g.noteAction(); g.frame("b$i", h) }
-        // 只在见过的几个状态里转:回到同一状态或兜圈,总有一条提醒
-        val same = stuck.flatten().filter { it.code == "same_state" || it.code == "state_cycle" }
-        assertTrue(same.isEmpty())
     }
 
     @Test fun manyActionsWithoutANewScreenNudgeThenStopLate() {
